@@ -95,7 +95,30 @@ router.post('/', authMiddleware, upload.single('projectImage'), async (req, res)
     try {
         const { title, description, longDescription, technologies, category, liveUrl, githubUrl, featured, order, isVisible, completedDate } = req.body;
 
-        const image = req.file ? `/uploads/projects/${req.file.filename}` : (req.body.image || '');
+        let imageUrl = req.body.image || '';
+
+        // Upload image to Supabase Storage if provided
+        if (req.file) {
+            const fileExt = req.file.originalname.split('.').pop();
+            const fileName = `project-${Date.now()}.${fileExt}`;
+            const filePath = `projects/${fileName}`;
+
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('portfolio-media')
+                .upload(filePath, req.file.buffer, {
+                    contentType: req.file.mimetype,
+                    upsert: true
+                });
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('portfolio-media')
+                .getPublicUrl(filePath);
+
+            imageUrl = publicUrl;
+        }
+
         const techs = typeof technologies === 'string' ? technologies.split(',').map(t => t.trim()).filter(t => t) : (technologies || []);
 
         const { data: project, error } = await supabase
@@ -104,7 +127,7 @@ router.post('/', authMiddleware, upload.single('projectImage'), async (req, res)
                 title,
                 description,
                 long_description: longDescription || '',
-                image,
+                image: imageUrl,
                 images: [],
                 technologies: techs,
                 category: category || 'web',
@@ -123,6 +146,7 @@ router.post('/', authMiddleware, upload.single('projectImage'), async (req, res)
 
         res.status(201).json(toCamelCase(project));
     } catch (error) {
+        console.error('❌ Project Create Error:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 });
@@ -137,8 +161,47 @@ router.put('/:id', authMiddleware, upload.single('projectImage'), async (req, re
         if (title !== undefined) updateData.title = title;
         if (description !== undefined) updateData.description = description;
         if (longDescription !== undefined) updateData.long_description = longDescription;
-        if (req.file) updateData.image = `/uploads/projects/${req.file.filename}`;
-        // if (images !== undefined) updateData.images = images; 
+
+        // Upload new image to Supabase Storage if provided
+        if (req.file) {
+            // Get existing project to delete old image
+            const { data: existingProject } = await supabase
+                .from('projects')
+                .select('image')
+                .eq('id', req.params.id)
+                .single();
+
+            // Delete old image from storage
+            if (existingProject && existingProject.image) {
+                const oldImagePath = existingProject.image.split('/portfolio-media/').pop();
+                if (oldImagePath && oldImagePath.startsWith('projects/')) {
+                    await supabase.storage
+                        .from('portfolio-media')
+                        .remove([oldImagePath]);
+                }
+            }
+
+            // Upload new image
+            const fileExt = req.file.originalname.split('.').pop();
+            const fileName = `project-${Date.now()}.${fileExt}`;
+            const filePath = `projects/${fileName}`;
+
+            const { data: uploadData, error: uploadError } = await supabase.storage
+                .from('portfolio-media')
+                .upload(filePath, req.file.buffer, {
+                    contentType: req.file.mimetype,
+                    upsert: true
+                });
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('portfolio-media')
+                .getPublicUrl(filePath);
+
+            updateData.image = publicUrl;
+        }
+
         if (technologies !== undefined) updateData.technologies = typeof technologies === 'string' ? technologies.split(',').map(t => t.trim()).filter(t => t) : technologies;
         if (category !== undefined) updateData.category = category;
         if (liveUrl !== undefined) updateData.live_url = liveUrl;
@@ -162,6 +225,7 @@ router.put('/:id', authMiddleware, upload.single('projectImage'), async (req, re
 
         res.json(toCamelCase(project));
     } catch (error) {
+        console.error('❌ Project Update Error:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 });

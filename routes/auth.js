@@ -276,15 +276,101 @@ router.put('/change-password', authMiddleware, async (req, res) => {
     }
 });
 
-// Helper for basic UA parsing
+// Enhanced User-Agent Parser with detailed device detection
 function parseUserAgent(ua) {
-    if (!ua) return 'Unknown Device';
-    if (ua.includes('Windows')) return 'Windows PC';
-    if (ua.includes('Macintosh')) return 'Mac';
-    if (ua.includes('Linux')) return 'Linux PC';
-    if (ua.includes('Android')) return 'Android Device';
-    if (ua.includes('iPhone') || ua.includes('iPad')) return 'iOS Device';
-    return 'Other Device';
+    if (!ua) return { summary: 'Unknown Device', browser: 'Unknown', os: 'Unknown', deviceType: 'desktop' };
+
+    const userAgent = ua.toLowerCase();
+
+    // Detect Browser
+    let browser = 'Unknown Browser';
+    let browserVersion = '';
+
+    if (userAgent.includes('edg/')) {
+        const match = userAgent.match(/edg\/([\d.]+)/);
+        browser = 'Microsoft Edge';
+        browserVersion = match ? match[1] : '';
+    } else if (userAgent.includes('chrome/') && !userAgent.includes('edg')) {
+        const match = userAgent.match(/chrome\/([\d.]+)/);
+        browser = 'Google Chrome';
+        browserVersion = match ? match[1] : '';
+    } else if (userAgent.includes('firefox/')) {
+        const match = userAgent.match(/firefox\/([\d.]+)/);
+        browser = 'Mozilla Firefox';
+        browserVersion = match ? match[1] : '';
+    } else if (userAgent.includes('safari/') && !userAgent.includes('chrome')) {
+        const match = userAgent.match(/version\/([\d.]+)/);
+        browser = 'Safari';
+        browserVersion = match ? match[1] : '';
+    } else if (userAgent.includes('opera') || userAgent.includes('opr/')) {
+        const match = userAgent.match(/(?:opera|opr)\/([\d.]+)/);
+        browser = 'Opera';
+        browserVersion = match ? match[1] : '';
+    }
+
+    // Detect Operating System
+    let os = 'Unknown OS';
+    let osVersion = '';
+
+    if (userAgent.includes('windows nt 10.0')) {
+        os = 'Windows 10/11';
+    } else if (userAgent.includes('windows nt 6.3')) {
+        os = 'Windows 8.1';
+    } else if (userAgent.includes('windows nt 6.2')) {
+        os = 'Windows 8';
+    } else if (userAgent.includes('windows nt 6.1')) {
+        os = 'Windows 7';
+    } else if (userAgent.includes('windows')) {
+        os = 'Windows';
+    } else if (userAgent.includes('mac os x')) {
+        const match = userAgent.match(/mac os x ([\d_]+)/);
+        os = 'macOS';
+        osVersion = match ? match[1].replace(/_/g, '.') : '';
+    } else if (userAgent.includes('android')) {
+        const match = userAgent.match(/android ([\d.]+)/);
+        os = 'Android';
+        osVersion = match ? match[1] : '';
+    } else if (userAgent.includes('iphone')) {
+        const match = userAgent.match(/os ([\d_]+)/);
+        os = 'iOS (iPhone)';
+        osVersion = match ? match[1].replace(/_/g, '.') : '';
+    } else if (userAgent.includes('ipad')) {
+        const match = userAgent.match(/os ([\d_]+)/);
+        os = 'iOS (iPad)';
+        osVersion = match ? match[1].replace(/_/g, '.') : '';
+    } else if (userAgent.includes('linux')) {
+        os = 'Linux';
+    } else if (userAgent.includes('cros')) {
+        os = 'Chrome OS';
+    }
+
+    // Detect Device Type
+    let deviceType = 'desktop';
+    if (userAgent.includes('mobile') || userAgent.includes('android')) {
+        deviceType = 'mobile';
+    } else if (userAgent.includes('tablet') || userAgent.includes('ipad')) {
+        deviceType = 'tablet';
+    }
+
+    // Build summary
+    let summary = '';
+    if (deviceType === 'mobile') {
+        summary = `📱 ${browser} on ${os}`;
+    } else if (deviceType === 'tablet') {
+        summary = `📲 ${browser} on ${os}`;
+    } else {
+        summary = `💻 ${browser} on ${os}`;
+    }
+
+    return {
+        summary,
+        browser,
+        browserVersion: browserVersion.split('.')[0] || '', // Major version only
+        os,
+        osVersion,
+        deviceType,
+        fullUA: ua
+    };
 }
 
 // @route   POST /api/auth/reset-password

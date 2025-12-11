@@ -8,8 +8,13 @@ if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Configure storage
-const storage = multer.diskStorage({
+// Configure storage - USE MEMORY STORAGE for Supabase
+// Files will be available as req.file.buffer
+const storage = multer.memoryStorage();
+
+// For backward compatibility, if you need disk storage later, uncomment this:
+/*
+const diskStorage = multer.diskStorage({
     destination: (req, file, cb) => {
         let folder = 'general';
         if (file.fieldname === 'profileImage') folder = 'profile';
@@ -29,6 +34,8 @@ const storage = multer.diskStorage({
         cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
+*/
+
 
 // File filter
 const fileFilter = (req, file, cb) => {

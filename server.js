@@ -78,7 +78,38 @@ const contactLimiter = rateLimit({
 // BASIC MIDDLEWARE
 // ===========================================
 
-app.use(cors());
+// CORS Configuration
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+
+    // Allow localhost and 127.0.0.1 with any port for development
+    const allowedOrigins = [
+      'http://localhost:5500',
+      'http://localhost:5501',
+      'http://localhost:3000',
+      'http://127.0.0.1:5500',
+      'http://127.0.0.1:5501',
+      'http://127.0.0.1:3000',
+      'https://mdazad.netlify.app',
+      'https://backend-mu-sage.vercel.app'
+    ];
+
+    // Check if origin matches exactly or is a localhost variant
+    if (allowedOrigins.includes(origin) || origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1')) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all for now (can restrict later)
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range']
+};
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 

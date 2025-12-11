@@ -122,38 +122,67 @@ router.put('/', authMiddleware, async (req, res) => {
 });
 
 // @route   POST /api/profile/image
-// @desc    Upload profile image
-router.post('/image', authMiddleware, (req, res, next) => {
-    upload.single('profileImage')(req, res, (err) => {
-        if (err) {
-            console.error('Multer Error:', err);
-            return res.status(500).json({ message: `Upload error: ${err.message}`, error: err.message });
-        }
-        next();
-    });
-}, async (req, res) => {
+// @desc    Upload profile image to Supabase Storage
+router.post('/image', authMiddleware, upload.single('profileImage'), async (req, res) => {
     try {
-        console.log('Upload Request Headers:', req.headers['content-type']);
-        console.log('Upload Request File:', req.file);
-        console.log('Upload Request Body:', req.body);
+        console.log('📸 Profile image upload request received');
+        console.log('File:', req.file);
 
         if (!req.file) {
             return res.status(400).json({ message: 'No file uploaded' });
         }
 
-        // Get existing profile
+        // Generate unique filename
+        const fileExt = req.file.originalname.split('.').pop();
+        const fileName = `profile-${Date.now()}.${fileExt}`;
+        const filePath = `profiles/${fileName}`;
+
+        console.log('📤 Uploading to Supabase Storage:', filePath);
+
+        // Upload to Supabase Storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('portfolio-media')
+            .upload(filePath, req.file.buffer, {
+                contentType: req.file.mimetype,
+                upsert: true
+            });
+
+        if (uploadError) {
+            console.error('❌ Supabase upload error:', uploadError);
+            throw uploadError;
+        }
+
+        console.log('✅ File uploaded to Supabase:', uploadData);
+
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+            .from('portfolio-media')
+            .getPublicUrl(filePath);
+
+        console.log('🔗 Public URL:', publicUrl);
+
+        // Update profile in database
         let { data: profiles } = await supabase
             .from('profiles')
-            .select('id')
+            .select('id, profile_image')
             .limit(1);
 
-        const imageUrl = `/uploads/profile/${req.file.filename}`;
+        // Delete old image from storage if exists
+        if (profiles && profiles[0] && profiles[0].profile_image) {
+            const oldImagePath = profiles[0].profile_image.split('/portfolio-media/').pop();
+            if (oldImagePath && oldImagePath.startsWith('profiles/')) {
+                console.log('🗑️ Deleting old image:', oldImagePath);
+                await supabase.storage
+                    .from('portfolio-media')
+                    .remove([oldImagePath]);
+            }
+        }
 
         let profile;
         if (!profiles || profiles.length === 0) {
             const { data, error } = await supabase
                 .from('profiles')
-                .insert({ profile_image: imageUrl })
+                .insert({ profile_image: publicUrl })
                 .select()
                 .single();
             if (error) throw error;
@@ -161,7 +190,7 @@ router.post('/image', authMiddleware, (req, res, next) => {
         } else {
             const { data, error } = await supabase
                 .from('profiles')
-                .update({ profile_image: imageUrl })
+                .update({ profile_image: publicUrl })
                 .eq('id', profiles[0].id)
                 .select()
                 .single();
@@ -169,12 +198,14 @@ router.post('/image', authMiddleware, (req, res, next) => {
             profile = data;
         }
 
+        console.log('✅ Profile updated with new image URL');
+
         res.json({
             message: 'Image uploaded successfully',
             imageUrl: profile.profile_image
         });
     } catch (error) {
-        console.error('Profile Image Upload Error:', error);
+        console.error('❌ Profile Image Upload Error:', error);
         res.status(500).json({ message: `Server error: ${error.message}`, error: error.message });
     }
 });
@@ -183,23 +214,61 @@ router.post('/image', authMiddleware, (req, res, next) => {
 // @desc    Upload resume
 router.post('/resume', authMiddleware, upload.single('resume'), async (req, res) => {
     try {
+        console.log('📄 Resume upload request received');
+
         if (!req.file) {
             return res.status(400).json({ message: 'No file uploaded' });
         }
 
-        // Get existing profile
+        // Generate unique filename
+        const fileExt = req.file.originalname.split('.').pop();
+        const fileName = `resume-${Date.now()}.${fileExt}`;
+        const filePath = `resumes/${fileName}`;
+
+        console.log('📤 Uploading resume to Supabase Storage:', filePath);
+
+        // Upload to Supabase Storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('portfolio-media')
+            .upload(filePath, req.file.buffer, {
+                contentType: req.file.mimetype,
+                upsert: true
+            });
+
+        if (uploadError) {
+            console.error('❌ Supabase upload error:', uploadError);
+            throw uploadError;
+        }
+
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+            .from('portfolio-media')
+            .getPublicUrl(filePath);
+
+        console.log('🔗 Resume Public URL:', publicUrl);
+
+        // Update profile in database
         let { data: profiles } = await supabase
             .from('profiles')
-            .select('id')
+            .select('id, resume_url')
             .limit(1);
 
-        const resumeUrl = `/uploads/resume/${req.file.filename}`;
+        // Delete old resume from storage if exists
+        if (profiles && profiles[0] && profiles[0].resume_url) {
+            const oldResumePath = profiles[0].resume_url.split('/portfolio-media/').pop();
+            if (oldResumePath && oldResumePath.startsWith('resumes/')) {
+                console.log('🗑️ Deleting old resume:', oldResumePath);
+                await supabase.storage
+                    .from('portfolio-media')
+                    .remove([oldResumePath]);
+            }
+        }
 
         let profile;
         if (!profiles || profiles.length === 0) {
             const { data, error } = await supabase
                 .from('profiles')
-                .insert({ resume_url: resumeUrl })
+                .insert({ resume_url: publicUrl })
                 .select()
                 .single();
             if (error) throw error;
@@ -207,7 +276,7 @@ router.post('/resume', authMiddleware, upload.single('resume'), async (req, res)
         } else {
             const { data, error } = await supabase
                 .from('profiles')
-                .update({ resume_url: resumeUrl })
+                .update({ resume_url: publicUrl })
                 .eq('id', profiles[0].id)
                 .select()
                 .single();
@@ -215,28 +284,52 @@ router.post('/resume', authMiddleware, upload.single('resume'), async (req, res)
             profile = data;
         }
 
+        console.log('✅ Resume uploaded successfully');
+
         res.json({
             message: 'Resume uploaded successfully',
             resumeUrl: profile.resume_url
         });
     } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
+        console.error('❌ Resume Upload Error:', error);
+        console.error('Error details:', JSON.stringify(error, null, 2));
+        res.status(500).json({
+            message: 'Server error',
+            error: error.message,
+            details: error.statusCode || error.status || 'Unknown'
+        });
     }
 });
 
 // @route   DELETE /api/profile/image
-// @desc    Remove profile image
+// @desc    Remove profile image from Supabase Storage
 router.delete('/image', authMiddleware, async (req, res) => {
     try {
         let { data: profiles } = await supabase
             .from('profiles')
-            .select('id')
+            .select('id, profile_image')
             .limit(1);
 
         if (!profiles || profiles.length === 0) {
             return res.status(404).json({ message: 'Profile not found' });
         }
 
+        // Delete from Supabase Storage if exists
+        if (profiles[0].profile_image) {
+            const imagePath = profiles[0].profile_image.split('/portfolio-media/').pop();
+            if (imagePath && imagePath.startsWith('profiles/')) {
+                console.log('🗑️ Deleting image from storage:', imagePath);
+                const { error: deleteError } = await supabase.storage
+                    .from('portfolio-media')
+                    .remove([imagePath]);
+
+                if (deleteError) {
+                    console.error('⚠️ Storage delete error:', deleteError);
+                }
+            }
+        }
+
+        // Remove from database
         const { error } = await supabase
             .from('profiles')
             .update({ profile_image: null })
@@ -244,8 +337,10 @@ router.delete('/image', authMiddleware, async (req, res) => {
 
         if (error) throw error;
 
+        console.log('✅ Profile image removed');
         res.json({ message: 'Profile image removed successfully' });
     } catch (error) {
+        console.error('❌ Delete Error:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 });
