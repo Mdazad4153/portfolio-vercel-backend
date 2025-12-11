@@ -49,14 +49,14 @@ const apiLimiter = rateLimit({
 });
 
 // Strict rate limit for auth routes - 3 attempts per 30 seconds
+// Strict rate limit for auth routes - 300 requests per minute (allows for dashboard loading)
 const authLimiter = rateLimit({
-  windowMs: 30 * 1000, // 30 seconds
-  max: 3,
+  windowMs: 60 * 1000, // 1 minute
+  max: 300,
   message: {
     error: true,
-    message: 'Too many login attempts, please try again after 30 seconds.',
-    retryAfter: 30,
-    lockoutSeconds: 30
+    message: 'Too many auth requests, please try again after 1 minute.',
+    retryAfter: 60
   },
   standardHeaders: true,
   legacyHeaders: false,
@@ -65,7 +65,7 @@ const authLimiter = rateLimit({
 // Contact form rate limit - 10 messages per 5 minutes
 const contactLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 10,
+  max: 1000, // Essentially unlimited for normal use
   message: {
     error: true,
     message: 'Too many messages sent. Please try again after 5 minutes.'
@@ -346,6 +346,11 @@ app.use((err, req, res, next) => {
     error: true,
     message: err.message || 'Internal server error'
   });
+});
+
+// Root Route
+app.get('/', (req, res) => {
+  res.send('🚀 Portfolio API is running! Access endpoints at /api/...');
 });
 
 // ===========================================

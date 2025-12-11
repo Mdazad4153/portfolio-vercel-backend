@@ -7,6 +7,24 @@
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
+  "author": {
+    "name": "MD Azad Ansari",
+    "email": "azad79900@gmail.com",
+    "url": "https://github.com/mdazad4153"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mdazad4153/portfolio"
+  },
+  "keywords": [
+    "portfolio",
+    "backend",
+    "rest-api",
+    "supabase",
+    "express",
+    "nodejs"
+  ],
   "dependencies": {
     "@supabase/supabase-js": "^2.87.1",
     "bcryptjs": "^2.4.3",

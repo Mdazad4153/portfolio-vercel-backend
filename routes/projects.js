@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { supabase } = require('../config/supabase');
 const authMiddleware = require('../middleware/auth');
+const upload = require('../middleware/upload');
 
 // Helper to convert snake_case to camelCase
 const toCamelCase = (project) => ({
@@ -90,9 +91,12 @@ router.get('/:id', async (req, res) => {
 
 // @route   POST /api/projects
 // @desc    Create project
-router.post('/', authMiddleware, async (req, res) => {
+router.post('/', authMiddleware, upload.single('projectImage'), async (req, res) => {
     try {
-        const { title, description, longDescription, image, images, technologies, category, liveUrl, githubUrl, featured, order, isVisible, completedDate } = req.body;
+        const { title, description, longDescription, technologies, category, liveUrl, githubUrl, featured, order, isVisible, completedDate } = req.body;
+
+        const image = req.file ? `/uploads/projects/${req.file.filename}` : (req.body.image || '');
+        const techs = typeof technologies === 'string' ? technologies.split(',').map(t => t.trim()).filter(t => t) : (technologies || []);
 
         const { data: project, error } = await supabase
             .from('projects')
@@ -100,15 +104,15 @@ router.post('/', authMiddleware, async (req, res) => {
                 title,
                 description,
                 long_description: longDescription || '',
-                image: image || '',
-                images: images || [],
-                technologies: technologies || [],
+                image,
+                images: [],
+                technologies: techs,
                 category: category || 'web',
                 live_url: liveUrl || '',
                 github_url: githubUrl || '',
-                featured: featured || false,
+                featured: featured === 'true' || featured === true,
                 order: order || 0,
-                is_visible: isVisible !== undefined ? isVisible : true,
+                is_visible: isVisible !== undefined ? (isVisible === 'true' || isVisible === true) : true,
                 views: 0,
                 completed_date: completedDate || new Date().toISOString()
             })
@@ -125,23 +129,23 @@ router.post('/', authMiddleware, async (req, res) => {
 
 // @route   PUT /api/projects/:id
 // @desc    Update project
-router.put('/:id', authMiddleware, async (req, res) => {
+router.put('/:id', authMiddleware, upload.single('projectImage'), async (req, res) => {
     try {
-        const { title, description, longDescription, image, images, technologies, category, liveUrl, githubUrl, featured, order, isVisible, completedDate } = req.body;
+        const { title, description, longDescription, technologies, category, liveUrl, githubUrl, featured, order, isVisible, completedDate } = req.body;
 
         const updateData = {};
         if (title !== undefined) updateData.title = title;
         if (description !== undefined) updateData.description = description;
         if (longDescription !== undefined) updateData.long_description = longDescription;
-        if (image !== undefined) updateData.image = image;
-        if (images !== undefined) updateData.images = images;
-        if (technologies !== undefined) updateData.technologies = technologies;
+        if (req.file) updateData.image = `/uploads/projects/${req.file.filename}`;
+        // if (images !== undefined) updateData.images = images; 
+        if (technologies !== undefined) updateData.technologies = typeof technologies === 'string' ? technologies.split(',').map(t => t.trim()).filter(t => t) : technologies;
         if (category !== undefined) updateData.category = category;
         if (liveUrl !== undefined) updateData.live_url = liveUrl;
         if (githubUrl !== undefined) updateData.github_url = githubUrl;
-        if (featured !== undefined) updateData.featured = featured;
+        if (featured !== undefined) updateData.featured = featured === 'true' || featured === true;
         if (order !== undefined) updateData.order = order;
-        if (isVisible !== undefined) updateData.is_visible = isVisible;
+        if (isVisible !== undefined) updateData.is_visible = isVisible === 'true' || isVisible === true;
         if (completedDate !== undefined) updateData.completed_date = completedDate;
 
         const { data: project, error } = await supabase
