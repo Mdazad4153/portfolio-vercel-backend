@@ -330,6 +330,49 @@ app.get('/api/db-status', async (req, res) => {
   }
 });
 
+// Realtime Status Check Endpoint
+app.get('/api/realtime-status', async (req, res) => {
+  try {
+    // Check if realtime is enabled on tables
+    const { data, error } = await supabase.rpc('check_realtime_tables', {});
+
+    if (error) {
+      // If RPC doesn't exist, try direct query
+      const { data: tables, error: tableError } = await supabase
+        .from('pg_publication_tables')
+        .select('*')
+        .eq('pubname', 'supabase_realtime');
+
+      if (tableError) {
+        res.json({
+          status: 'unknown',
+          message: 'Cannot check realtime status. Please run the SQL manually in Supabase Dashboard.',
+          sql: `ALTER PUBLICATION supabase_realtime ADD TABLE profiles, skills, projects, education, services, certificates, contacts;`,
+          error: tableError.message
+        });
+      } else {
+        res.json({
+          status: 'info',
+          realtimeTables: tables || [],
+          requiredTables: ['profiles', 'skills', 'projects', 'education', 'services', 'certificates', 'contacts']
+        });
+      }
+    } else {
+      res.json({
+        status: 'success',
+        realtimeTables: data
+      });
+    }
+  } catch (err) {
+    res.json({
+      status: 'error',
+      message: 'Realtime check failed',
+      hint: 'Please run enable_realtime.sql in Supabase SQL Editor',
+      error: err.message
+    });
+  }
+});
+
 // ===========================================
 // ERROR HANDLING MIDDLEWARE
 // ===========================================

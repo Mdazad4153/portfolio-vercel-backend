@@ -109,6 +109,44 @@ npm start
 
 Server runs on: `http://localhost:5000`
 
+## 🔴 Enable Supabase Realtime (Live Updates)
+
+For real-time updates between Admin and Main page (no refresh needed):
+
+### 1. Enable Realtime on Tables
+
+Run this SQL in Supabase Dashboard → SQL Editor:
+
+```sql
+-- Enable realtime for all portfolio tables
+ALTER PUBLICATION supabase_realtime ADD TABLE profiles;
+ALTER PUBLICATION supabase_realtime ADD TABLE skills;
+ALTER PUBLICATION supabase_realtime ADD TABLE projects;
+ALTER PUBLICATION supabase_realtime ADD TABLE education;
+ALTER PUBLICATION supabase_realtime ADD TABLE services;
+ALTER PUBLICATION supabase_realtime ADD TABLE certificates;
+ALTER PUBLICATION supabase_realtime ADD TABLE contacts;
+```
+
+Or run the file: `backend/enable_realtime.sql`
+
+### 2. Update Frontend Credentials
+
+Edit `frontend/js/supabase-realtime.js` and update:
+
+```javascript
+const SUPABASE_URL = 'https://YOUR-PROJECT-ID.supabase.co';
+const SUPABASE_ANON_KEY = 'your_anon_key_here';
+```
+
+Get these from: Supabase Dashboard → Settings → API → `anon` public key
+
+### 3. How It Works
+
+- **Admin makes changes** → Main page updates instantly (no refresh!)
+- **Contact form submitted** → Admin sees new message with sound notification
+- **Works across all devices** - multiple tabs/browsers stay synced
+
 ## 📁 Project Structure
 
 ```
