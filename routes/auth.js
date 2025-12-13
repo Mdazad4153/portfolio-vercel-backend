@@ -125,17 +125,57 @@ router.post('/login', async (req, res) => {
         expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry
 
         try {
-            // Attempt to insert session (fails silently if table doesn't exist to prevent login break)
+            // Get real IP (x-forwarded-for for proxies)
+            let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'Unknown';
+            // Get first IP if multiple
+            if (clientIp.includes(',')) {
+                clientIp = clientIp.split(',')[0].trim();
+            }
+            // Remove IPv6 prefix if present
+            if (clientIp.startsWith('::ffff:')) {
+                clientIp = clientIp.substring(7);
+            }
+
+            // Fetch location data from ip-api.com
+            let locationData = { city: 'Unknown', country: 'Unknown', isp: 'Unknown', query: clientIp };
+            try {
+                const ipToLookup = (clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === 'Unknown') ? '' : clientIp;
+                const ipApiUrl = ipToLookup ? `http://ip-api.com/json/${ipToLookup}` : 'http://ip-api.com/json/';
+                const ipResponse = await fetch(ipApiUrl);
+                const ipData = await ipResponse.json();
+                if (ipData.status === 'success') {
+                    locationData = {
+                        city: ipData.city || 'Unknown',
+                        country: ipData.country || 'Unknown',
+                        region: ipData.regionName || '',
+                        isp: ipData.isp || 'Unknown',
+                        query: ipData.query || clientIp
+                    };
+                }
+            } catch (ipErr) {
+                console.warn('IP lookup failed:', ipErr.message);
+            }
+
+            // Parse user agent
+            const deviceInfo = parseUserAgent(userAgent);
+
+            // Insert session with detailed info
             await supabase.from('admin_sessions').insert({
                 admin_id: admin.id,
                 token_hash: tokenHash,
-                ip_address: ip,
+                ip_address: locationData.query || clientIp,
                 user_agent: userAgent,
-                device_info: parseUserAgent(userAgent), // Simple parser helper below
+                device_info: {
+                    ...deviceInfo,
+                    city: locationData.city,
+                    country: locationData.country,
+                    region: locationData.region,
+                    isp: locationData.isp
+                },
                 expires_at: expiresAt.toISOString()
             });
         } catch (sessionErr) {
-            console.warn('Session tracking skipped (Table might be missing):', sessionErr.message);
+            console.warn('Session tracking skipped:', sessionErr.message);
         }
         // --- SESSION TRACKING END ---
 
@@ -166,30 +206,7 @@ router.get('/me', authMiddleware, async (req, res) => {
     }
 });
 
-// @route   GET /api/auth/sessions
-// @desc    Get active sessions for current admin
-router.get('/sessions', authMiddleware, async (req, res) => {
-    try {
-        const { data: sessions, error } = await supabase
-            .from('admin_sessions')
-            .select('*')
-            .eq('admin_id', req.admin.id)
-            .order('last_active', { ascending: false });
-
-        if (error) {
-            // If table doesn't exist, return empty array instead of crashing
-            if (error.code === '42P01') return res.json([]);
-            throw error;
-        }
-
-        res.json(sessions);
-    } catch (error) {
-        console.error('Session Fetch Error:', error);
-        res.status(500).json({
-            message: `DB Error: ${error.message} (Code: ${error.code || 'N/A'})`
-        });
-    }
-});
+// Old GET /sessions route DELETED - using newer version below (line ~507)
 
 // @desc    Logout sessions (All or others)
 router.delete('/sessions', authMiddleware, async (req, res) => {
@@ -415,4 +432,143 @@ router.post('/reset-password', async (req, res) => {
     }
 });
 
+// @route   POST /api/auth/sync-password
+// @desc    Sync password from Supabase Auth to local admins table
+// @access  Public (called after Supabase password reset)
+router.post('/sync-password', async (req, res) => {
+    try {
+        const { email, newPassword } = req.body;
+
+        if (!email || !newPassword) {
+            return res.status(400).json({ message: 'Email and password required' });
+        }
+
+        // Find admin by email
+        const { data: admin, error } = await supabase
+            .from('admins')
+            .select('id')
+            .eq('email', email)
+            .single();
+
+        if (error || !admin) {
+            return res.status(404).json({ message: 'Admin not found' });
+        }
+
+        // Hash and update password
+        const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+        await supabase
+            .from('admins')
+            .update({
+                password: hashedPassword,
+                login_attempts: 0,
+                lock_until: null
+            })
+            .eq('id', admin.id);
+
+        console.log('✅ Password synced for:', email);
+        res.json({ message: 'Password synced successfully' });
+    } catch (error) {
+        console.error('Sync password error:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+});
+
+// ===========================================
+// SESSION MANAGEMENT ROUTES
+// ===========================================
+
+// @route   GET /api/auth/sessions
+// @desc    Get all active sessions for current admin
+// @access  Protected
+router.get('/sessions', authMiddleware, async (req, res) => {
+    try {
+        const { data: sessions, error } = await supabase
+            .from('admin_sessions')
+            .select('*')
+            .eq('admin_id', req.admin.id)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Sessions fetch error:', error);
+            return res.status(500).json({ message: 'Failed to fetch sessions' });
+        }
+
+        // Get current session token hash to mark it
+        const currentToken = req.headers.authorization?.replace('Bearer ', '') || '';
+        const currentTokenHash = crypto.createHash('sha256').update(currentToken).digest('hex');
+
+        // Format sessions for frontend
+        const formattedSessions = (sessions || []).map(session => ({
+            id: session.id,
+            ipAddress: session.ip_address || 'Unknown',
+            deviceInfo: session.device_info || {},
+            userAgent: session.user_agent || 'Unknown',
+            createdAt: session.created_at,
+            expiresAt: session.expires_at,
+            isCurrent: session.token_hash === currentTokenHash
+        }));
+
+        res.json(formattedSessions);
+    } catch (error) {
+        console.error('Sessions error:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+});
+
+// @route   DELETE /api/auth/sessions/:id
+// @desc    Delete a specific session (logout that device)
+// @access  Protected
+router.delete('/sessions/:id', authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Delete session only if it belongs to current admin
+        const { error } = await supabase
+            .from('admin_sessions')
+            .delete()
+            .eq('id', id)
+            .eq('admin_id', req.admin.id);
+
+        if (error) {
+            console.error('Session delete error:', error);
+            return res.status(500).json({ message: 'Failed to delete session' });
+        }
+
+        res.json({ message: 'Session terminated' });
+    } catch (error) {
+        console.error('Delete session error:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+});
+
+// @route   DELETE /api/auth/sessions
+// @desc    Logout all other sessions (except current)
+// @access  Protected
+router.delete('/sessions', authMiddleware, async (req, res) => {
+    try {
+        // Get current session token hash
+        const currentToken = req.headers.authorization?.replace('Bearer ', '') || '';
+        const currentTokenHash = crypto.createHash('sha256').update(currentToken).digest('hex');
+
+        // Delete all sessions except current one
+        const { error } = await supabase
+            .from('admin_sessions')
+            .delete()
+            .eq('admin_id', req.admin.id)
+            .neq('token_hash', currentTokenHash);
+
+        if (error) {
+            console.error('Logout all error:', error);
+            return res.status(500).json({ message: 'Failed to logout other sessions' });
+        }
+
+        res.json({ message: 'All other sessions terminated' });
+    } catch (error) {
+        console.error('Logout all error:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+});
+
 module.exports = router;
+
